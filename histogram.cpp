@@ -18,7 +18,6 @@ struct PartialGlobalSumArgs {
     HistogramArgs* hist_args;
     int rank;
     int* rank_flag;
-    float* bin_maxes;
     int* bin_counts;
     int start;
     int end;
@@ -28,15 +27,14 @@ struct TreeSumArgs {
     HistogramArgs* hist_args;
     int level;
     int rank;
-    float* bin_maxes;
     int* bin_counts;
 };
 
 /**
- Reads the given range of data in memory to compute partial histogram counts
- and maximum values, writing output to the provided space in memory.
+ Reads the given range of data in memory to compute partial histogram counts,
+ writing output to the provided space in memory.
  */
-void compute_partial_histogram(HistogramArgs* args, int start, int end, float* bin_maxes_out, int* bin_counts_out) {
+void compute_partial_histogram(HistogramArgs* args, int start, int end, int* bin_counts_out) {
     for (int i = start; i < end; i++) {
         float current = args->data[i];
         int bin = current / args->bin_size;
@@ -47,9 +45,6 @@ void compute_partial_histogram(HistogramArgs* args, int start, int end, float* b
             continue;
         }
         bin_counts_out[bin]++;
-        if (bin_maxes_out[bin] < current) {
-            bin_maxes_out[bin] = current;
-        }
     }
 }
 
@@ -57,12 +52,9 @@ void compute_partial_histogram(HistogramArgs* args, int start, int end, float* b
  Combines two partial histograms by adding counts and updating maxes with the
  maximum between both histograms, modifying the output max/count arrays in-place.
  */
-void combine_partial_histograms(float* maxes_in, int* counts_in, float* maxes_out, int* counts_out, int bin_count) {
+void combine_partial_histograms(int* counts_in, int* counts_out, int bin_count) {
     for (int i = 0; i < bin_count; i++) {
         counts_out[i] += counts_in[i];
-        if (maxes_out[i] < maxes_in[i]) {
-            maxes_out[i] = maxes_in[i];
-        }
     }
 }
 
@@ -84,18 +76,16 @@ void init_random_dataset(float* data_out, int data_count, float min_meas, float 
  */
 void * global_sum_compute_partial(PartialGlobalSumArgs* args) {
     // Initialize local max and count partial histograms
-    float bin_maxes_local[args->hist_args->bin_count];
     int bin_counts_local[args->hist_args->bin_count];
     for (int i = 0; i < args->hist_args->bin_count; i++) {
-        bin_maxes_local[i] = -1;
         bin_counts_local[i] = 0;
     }
     
-    compute_partial_histogram(args->hist_args, args->start, args->end, bin_maxes_local, bin_counts_local);
+    compute_partial_histogram(args->hist_args, args->start, args->end, bin_counts_local);
     
     // Update the global histogram
     while (*args->rank_flag != args->rank);
-    combine_partial_histograms(bin_maxes_local, bin_counts_local, args->bin_maxes, args->bin_counts, args->hist_args->bin_count);
+    combine_partial_histograms(bin_counts_local, args->bin_counts, args->hist_args->bin_count);
     (*args->rank_flag)++;
     
     return NULL;
@@ -107,6 +97,11 @@ void * global_sum_compute_partial(PartialGlobalSumArgs* args) {
  */
 void hist_global_sum(HistogramArgs* args, float* bin_maxes_out, int* bin_counts_out) {
     void *(*start_routine)(void *) = (void *(*)(void *)) &global_sum_compute_partial;
+
+    // Bin maxes only need to be calculated once
+    for (int i = 0; i < args->bin_count; i++) {
+        bin_maxes_out[i] = args->bin_size * (i+1); // calculate max (exclusive)
+    }
     
     pthread_t child_threads[args->thread_count];
     PartialGlobalSumArgs child_args[args->thread_count];
@@ -118,7 +113,6 @@ void hist_global_sum(HistogramArgs* args, float* bin_maxes_out, int* bin_counts_
             .hist_args = args,
             .rank = i,
             .rank_flag = &rank_flag,
-            .bin_maxes = bin_maxes_out,
             .bin_counts = bin_counts_out
         };
         
@@ -146,10 +140,8 @@ void hist_global_sum(HistogramArgs* args, float* bin_maxes_out, int* bin_counts_
 void * hist_tree_sum_r(TreeSumArgs* args) {
     if (args->level > 0) {
         // Init memory space for child thread
-        float child_bin_maxes[args->hist_args->bin_count];
         int child_bin_counts[args->hist_args->bin_count];
         for (int i = 0; i < args->hist_args->bin_count; i++) {
-            child_bin_maxes[i] = -1;
             child_bin_counts[i] = 0;
         }
         
@@ -160,7 +152,6 @@ void * hist_tree_sum_r(TreeSumArgs* args) {
             .hist_args = args->hist_args,
             .level = args->level - 1,
             .rank = args->rank + (int) pow(2, args->level - 1),
-            .bin_maxes = child_bin_maxes,
             .bin_counts = child_bin_counts
         };
         pthread_create(&child_thread, NULL, start_routine, &child_args);
@@ -173,7 +164,7 @@ void * hist_tree_sum_r(TreeSumArgs* args) {
         pthread_join(child_thread, NULL);
         
         // Combine both partial histograms
-        combine_partial_histograms(child_bin_maxes, child_bin_counts, args->bin_maxes, args->bin_counts, args->hist_args->bin_count);
+        combine_partial_histograms(child_bin_counts, args->bin_counts, args->hist_args->bin_count);
     } else {
         // No need to launch a new thread
         // Just compute partial histogram for our portion of the data
@@ -185,7 +176,7 @@ void * hist_tree_sum_r(TreeSumArgs* args) {
             end = args->hist_args->thread_data_size * (args->rank + 1);
         }
         
-        compute_partial_histogram(args->hist_args, start, end, args->bin_maxes, args->bin_counts);
+        compute_partial_histogram(args->hist_args, start, end, args->bin_counts);
     }
 
     return NULL;
@@ -200,9 +191,14 @@ void hist_tree_sum(HistogramArgs* args, float* bin_maxes_out, int* bin_counts_ou
         .hist_args = args,
         .level = (int) log2(args->thread_count),
         .rank = 0,
-        .bin_maxes = bin_maxes_out,
         .bin_counts = bin_counts_out
     };
+
+    // Bin maxes only need to be calculated once
+    for (int i = 0; i < args->bin_count; i++) {
+        bin_maxes_out[i] = args->bin_size * (i+1); // calculate max (exclusive)
+    }
+
     hist_tree_sum_r(&child_args);
 }
 
@@ -245,7 +241,7 @@ int main(int argc, const char * argv[]) {
 //    };
     HistogramArgs args = {
         .data = data,
-        .data_count = 105,
+        .data_count = data_count,
         .min_meas = 12,
         .max_meas = 527,
         .bin_count = 10,
@@ -267,13 +263,13 @@ int main(int argc, const char * argv[]) {
     printf("Global Sum\n");
     print_histogram(bin_maxes_global, bin_counts_global, args.bin_count);
     
-//    float bin_maxes_tree[args.bin_count];
-//    int bin_counts_tree[args.bin_count];
-//    for (int i = 0; i < args.bin_count; i++) {
-//        bin_maxes_tree[i] = -1;
-//        bin_counts_tree[i] = 0;
-//    }
-//    hist_tree_sum(&args, bin_maxes_tree, bin_counts_tree);
-//    printf("Tree Structured Sum\n");
-//    print_histogram(bin_maxes_tree, bin_counts_tree, args.bin_count);
+   float bin_maxes_tree[args.bin_count];
+   int bin_counts_tree[args.bin_count];
+   for (int i = 0; i < args.bin_count; i++) {
+       bin_maxes_tree[i] = -1;
+       bin_counts_tree[i] = 0;
+   }
+   hist_tree_sum(&args, bin_maxes_tree, bin_counts_tree);
+   printf("Tree Structured Sum\n");
+   print_histogram(bin_maxes_tree, bin_counts_tree, args.bin_count);
 }
