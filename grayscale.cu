@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 __global__ void rgb_to_grayscale_kernel(char* rgb_im_in, char* grayscale_im_out, int size) {
     // thread id of current block (on x axis)
@@ -8,7 +9,6 @@ __global__ void rgb_to_grayscale_kernel(char* rgb_im_in, char* grayscale_im_out,
 
     // block id (on x axis)
     // int bx = blockIdx.x;
-    printf("hi\n");
 
     int pixel_idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (pixel_idx < size) {
@@ -24,7 +24,7 @@ __global__ void rgb_to_grayscale_kernel(char* rgb_im_in, char* grayscale_im_out,
 int main() {
     int height = 1024;
     int width = 1024;
-    int block_size = 1000;
+    int block_size = 1024;
     int rgb_im_len = height * width * 3;
     int grayscale_im_len = height * width;
 
@@ -72,15 +72,33 @@ int main() {
 
     free(rgb_im_h);
 
-    // Start grayscale kernel and wait
+    // Run grayscale kernel 200x and take the average runtime
 
-    rgb_to_grayscale_kernel<<<ceil(rgb_im_len/block_size), block_size>>>(rgb_im_d, grayscale_im_d, grayscale_im_len);
+    struct timespec start_time;
+    struct timespec end_time;
+    double avg_time = 0;
+    int num_trials = 200;
 
-    ret = cudaDeviceSynchronize();
-    if (ret != cudaSuccess) {
-        fprintf(stderr, "Grayscale kernel failed.\n");
-        return EXIT_FAILURE;
+    for (int i = 0; i < num_trials; i++) {
+        clock_gettime(CLOCK_REALTIME, &start_time);
+
+        rgb_to_grayscale_kernel<<<ceil(rgb_im_len/block_size), block_size>>>(rgb_im_d, grayscale_im_d, grayscale_im_len);
+
+        ret = cudaDeviceSynchronize();
+        if (ret != cudaSuccess) {
+            fprintf(stderr, "Grayscale kernel failed.\n");
+            return EXIT_FAILURE;
+        }
+
+        clock_gettime(CLOCK_REALTIME, &end_time);
+
+        double time_ns = (double) (end_time.tv_sec - start_time.tv_sec) * 1.0e9 + (double) (end_time.tv_nsec - start_time.tv_nsec);
+        avg_time += time_ns;
     }
+
+    avg_time /= num_trials;
+
+    printf("Completed %d trials in an average of %f ns\n", num_trials, avg_time);
 
     // Copy results back to host
 
