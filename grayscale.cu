@@ -82,7 +82,7 @@ int main() {
     for (int i = 0; i < num_trials; i++) {
         clock_gettime(CLOCK_REALTIME, &start_time);
 
-        rgb_to_grayscale_kernel<<<ceil(rgb_im_len/block_size), block_size>>>(rgb_im_d, grayscale_im_d, grayscale_im_len);
+        rgb_to_grayscale_kernel<<<ceil(rgb_im_len/(double)block_size), block_size>>>(rgb_im_d, grayscale_im_d, grayscale_im_len);
 
         ret = cudaDeviceSynchronize();
         if (ret != cudaSuccess) {
