@@ -23,20 +23,24 @@ uint8_t is_alive(uint8_t* neighborhood) {
     }
 }
 
+void update_single_cell(int x, int y, uint8_t* in, uint8_t* out, int width, int height) {
+    uint8_t neighborhood[9];
+    for (uint8_t i = 0; i < 9; i++) {
+        int neighbor_x = (i % 3) - 1 + x;
+        int neighbor_y = (i / 3) - 1 + y;
+        if (neighbor_x > 0 && neighbor_x < width && neighbor_y > 0 && neighbor_y < height) {
+            neighborhood[i] = in[neighbor_y*width + neighbor_x];
+        } else {
+            neighborhood[i] = false;
+        }
+    }
+    out[y*width + x] = is_alive(neighborhood);
+}
+
 void simulation_step(uint8_t* in, uint8_t* out, int width, int height) {
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            uint8_t neighborhood[9];
-            for (uint8_t i = 0; i < 9; i++) {
-                int neighbor_x = (i % 3) - 1 + x;
-                int neighbor_y = (i / 3) - 1 + y;
-                if (neighbor_x > 0 && neighbor_x < width && neighbor_y > 0 && neighbor_y < height) {
-                    neighborhood[i] = in[neighbor_y*width + neighbor_x];
-                } else {
-                    neighborhood[i] = false;
-                }
-            }
-            out[y*width + x] = is_alive(neighborhood);
+            update_single_cell(x, y, in, out, width, height);
         }
     }
 }
@@ -80,4 +84,6 @@ int main() {
 
     int num_written = fwrite(output, 1, len, fptr);
     fclose(fptr);
+
+    return EXIT_SUCCESS;
 }
