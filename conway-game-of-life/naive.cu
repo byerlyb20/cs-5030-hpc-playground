@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "conway.cpp"
 
-__global__ void conway_step_kernel(uint8_t* in, uint8_t* out, int width, int height) {
+__global__ void conway_step_kernel(u_int8_t* in, u_int8_t* out, int width, int height) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
 
@@ -25,14 +25,14 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    uint8_t* field_h = (uint8_t*) malloc(len);
+    u_int8_t* field_h = (u_int8_t*) malloc(len);
     int num_read = fread(field_h, 1, len, fptr);
     fclose(fptr);
 
     cudaError_t ret;
 
-    uint8_t* field_a_d;
-    uint8_t* field_b_d;
+    u_int8_t* field_a_d;
+    u_int8_t* field_b_d;
 
     ret = cudaMalloc((void **) &field_a_d, len);
     if (ret != cudaSuccess) {
@@ -55,7 +55,6 @@ int main() {
     dim3 blocksPerGrid(ceil(len/(double)block_size_1d), ceil(len/(double)block_size_1d)); 
     dim3 threadsPerBlock(block_size_1d, block_size_1d);
 
-    // TODO: run simulation
     for (int i = 0; i < iterations; i++) {
         if (i % 2 == 0) {
             conway_step_kernel<<<blocksPerGrid, threadsPerBlock>>>(field_a_d, field_b_d, width, height);
@@ -67,9 +66,10 @@ int main() {
             fprintf(stderr, "CUDA synchronize failed.\n");
             return EXIT_FAILURE;
         }
+        printf("Ran %d-th simulation\n", i);
     }
 
-    uint8_t* output_d = iterations % 2 == 0 ? field_a_d : field_b_d;
+    u_int8_t* output_d = iterations % 2 == 0 ? field_a_d : field_b_d;
     ret = cudaMemcpy(field_h, output_d, len, cudaMemcpyDeviceToHost);
     if (ret != cudaSuccess) {
         fprintf(stderr, "Copying memory from device to host failed.\n");
