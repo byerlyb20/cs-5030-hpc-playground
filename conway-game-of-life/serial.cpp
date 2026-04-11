@@ -49,7 +49,7 @@ int main() {
 
     double time_ns = (double) (end_time.tv_sec - start_time.tv_sec) * 1.0e9 + (double) (end_time.tv_nsec - start_time.tv_nsec);
     double time_ms = time_ns / 1000000;
-    printf("Finished in %f ns\n", time_ms);
+    printf("Finished in %f ms\n", time_ms);
 
     fptr = fopen("gc_out-serial.raw", "wb");
     if (fptr == NULL) {

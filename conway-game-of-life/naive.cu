@@ -53,13 +53,14 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    struct timespec start_time;
-    struct timespec end_time;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
     dim3 blocksPerGrid(ceil(width/(double)block_size_1d), ceil(height/(double)block_size_1d)); 
     dim3 threadsPerBlock(block_size_1d, block_size_1d);
 
-    clock_gettime(CLOCK_REALTIME, &start_time);
+    cudaEventRecord(start);
 
     for (int i = 0; i < iterations; i++) {
         if (i % 2 == 0) {
@@ -74,11 +75,17 @@ int main() {
         }
     }
 
-    clock_gettime(CLOCK_REALTIME, &end_time);
+    cudaEventRecord(stop);
 
-    double time_ns = (double) (end_time.tv_sec - start_time.tv_sec) * 1.0e9 + (double) (end_time.tv_nsec - start_time.tv_nsec);
-    double time_ms = time_ns / 1000000;
-    printf("Finished in %f ns\n", time_ms);
+    ret = cudaEventSynchronize(stop);
+    if (ret != cudaSuccess) {
+        fprintf(stderr, "CUDA synchronize failed with ret=%d\n", ret);
+        return EXIT_FAILURE;
+    }
+
+    float time_ms = 0;
+    cudaEventElapsedTime(&time_ms, start, stop);
+    printf("Finished in %f ms\n", time_ms);
 
     u_int8_t* output_d = iterations % 2 == 0 ? field_a_d : field_b_d;
     ret = cudaMemcpy(field_h, output_d, len, cudaMemcpyDeviceToHost);
