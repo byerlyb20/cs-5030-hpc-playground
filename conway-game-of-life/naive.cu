@@ -19,6 +19,8 @@ int main() {
     int iterations = 1000;
     int block_size_1d = 32;
 
+    // Load in file and allocate memory on host and device
+
     FILE *fptr;
     fptr = fopen("gc_1024x1024-uint8.raw", "rb");
     if (fptr == NULL) {
@@ -32,6 +34,7 @@ int main() {
 
     cudaError_t ret;
 
+    // Alternate between array A and array B for each simulation step
     u_int8_t* field_a_d;
     u_int8_t* field_b_d;
 
@@ -52,6 +55,8 @@ int main() {
         fprintf(stderr, "Copying memory from host to device failed.\n");
         return EXIT_FAILURE;
     }
+
+    // Run simulation
 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
@@ -86,6 +91,8 @@ int main() {
     float time_ms = 0;
     cudaEventElapsedTime(&time_ms, start, stop);
     printf("Finished in %f ms\n", time_ms);
+
+    // Copy results back to host and output file
 
     u_int8_t* output_d = iterations % 2 == 0 ? field_a_d : field_b_d;
     ret = cudaMemcpy(field_h, output_d, len, cudaMemcpyDeviceToHost);

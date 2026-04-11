@@ -14,6 +14,8 @@ __global__ void conway_step_kernel(u_int8_t* in, u_int8_t* out, int width, int h
     int tile_x = threadIdx.x + 1;
     int tile_y = threadIdx.y + 1;
 
+    // Populate tile in shared memory
+
     // Each thread copies its own cell
     if (x < width && y < height) {
         tile[tile_y][tile_x] = in[y*width + x];
@@ -60,8 +62,6 @@ __global__ void conway_step_kernel(u_int8_t* in, u_int8_t* out, int width, int h
         }
     }
 
-    // printf("Thread (%d,%d) maps to (%d,%d): loaded tiles (%d,%d) and (%d,%d)\n", threadIdx.x, threadIdx.y, x, y, tile_x, tile_y, halo_tile_x, halo_tile_y);
-
     __syncthreads();
 
     if (x < width && y < height) {
@@ -88,6 +88,8 @@ int main() {
     int iterations = 1000;
     int block_size_1d = BLOCK_SIZE;
 
+    // Load in file and allocate memory on host and device
+
     FILE *fptr;
     fptr = fopen("gc_1024x1024-uint8.raw", "rb");
     if (fptr == NULL) {
@@ -101,6 +103,7 @@ int main() {
 
     cudaError_t ret;
 
+    // Alternate between array A and array B for each simulation step
     u_int8_t* field_a_d;
     u_int8_t* field_b_d;
 
@@ -121,6 +124,8 @@ int main() {
         fprintf(stderr, "Copying memory from host to device failed.\n");
         return EXIT_FAILURE;
     }
+
+    // Run simulation
 
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
@@ -155,6 +160,8 @@ int main() {
     float time_ms = 0;
     cudaEventElapsedTime(&time_ms, start, stop);
     printf("Finished in %f ms\n", time_ms);
+
+    // Copy results back to host and output file
 
     u_int8_t* output_d = iterations % 2 == 0 ? field_a_d : field_b_d;
     ret = cudaMemcpy(field_h, output_d, len, cudaMemcpyDeviceToHost);
