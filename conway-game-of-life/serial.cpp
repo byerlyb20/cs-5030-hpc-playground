@@ -1,4 +1,5 @@
 #include "conway.cpp"
+#include <time.h>
 
 void simulation_step(u_int8_t* in, u_int8_t* out, int width, int height) {
     for (int y = 0; y < height; y++) {
@@ -36,10 +37,21 @@ int main() {
     int num_read = fread(field_a, 1, len, fptr);
     fclose(fptr);
 
+    struct timespec start_time;
+    struct timespec end_time;
+
+    clock_gettime(CLOCK_REALTIME, &start_time);
+
     run_simulation(iterations, field_a, field_b, width, height);
     u_int8_t* output = iterations % 2 == 0 ? field_a : field_b;
 
-    fptr = fopen("gc_out.raw", "wb");
+    clock_gettime(CLOCK_REALTIME, &end_time);
+
+    double time_ns = (double) (end_time.tv_sec - start_time.tv_sec) * 1.0e9 + (double) (end_time.tv_nsec - start_time.tv_nsec);
+    double time_ms = time_ns / 1000000;
+    printf("Finished in %f ns\n", time_ms);
+
+    fptr = fopen("gc_out-serial.raw", "wb");
     if (fptr == NULL) {
         printf("Unable to open output file.");
         return EXIT_FAILURE;

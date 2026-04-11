@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "conway.cpp"
+#include <time.h>
 
 __global__ void conway_step_kernel(u_int8_t* in, u_int8_t* out, int width, int height) {
     int x = blockDim.x * blockIdx.x + threadIdx.x;
@@ -52,8 +53,13 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    dim3 blocksPerGrid(ceil(len/(double)block_size_1d), ceil(len/(double)block_size_1d)); 
+    struct timespec start_time;
+    struct timespec end_time;
+
+    dim3 blocksPerGrid(ceil(width/(double)block_size_1d), ceil(height/(double)block_size_1d)); 
     dim3 threadsPerBlock(block_size_1d, block_size_1d);
+
+    clock_gettime(CLOCK_REALTIME, &start_time);
 
     for (int i = 0; i < iterations; i++) {
         if (i % 2 == 0) {
@@ -66,8 +72,13 @@ int main() {
             fprintf(stderr, "CUDA synchronize failed.\n");
             return EXIT_FAILURE;
         }
-        printf("Ran %d-th simulation\n", i);
     }
+
+    clock_gettime(CLOCK_REALTIME, &end_time);
+
+    double time_ns = (double) (end_time.tv_sec - start_time.tv_sec) * 1.0e9 + (double) (end_time.tv_nsec - start_time.tv_nsec);
+    double time_ms = time_ns / 1000000;
+    printf("Finished in %f ns\n", time_ms);
 
     u_int8_t* output_d = iterations % 2 == 0 ? field_a_d : field_b_d;
     ret = cudaMemcpy(field_h, output_d, len, cudaMemcpyDeviceToHost);
@@ -76,7 +87,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    fptr = fopen("gc_out.raw", "wb");
+    fptr = fopen("gc_out-naive.raw", "wb");
     if (fptr == NULL) {
         printf("Unable to open output file.");
         return EXIT_FAILURE;

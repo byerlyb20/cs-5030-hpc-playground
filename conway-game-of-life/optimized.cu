@@ -1,49 +1,66 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "conway.cpp"
+#include <time.h>
 
-#define TILE_SIZE 32;
+#define BLOCK_SIZE 32
+#define TILE_SIZE (BLOCK_SIZE + 2)
 
 __global__ void conway_step_kernel(u_int8_t* in, u_int8_t* out, int width, int height) {
-    __shared__ u_int8_t tile[TILE_SIZE + 2][TILE_SIZE + 2];
+    __shared__ u_int8_t tile[TILE_SIZE][TILE_SIZE];
 
     int x = blockDim.x * blockIdx.x + threadIdx.x;
     int y = blockDim.y * blockIdx.y + threadIdx.y;
+    int tile_x = threadIdx.x + 1;
+    int tile_y = threadIdx.y + 1;
 
     // Each thread copies its own cell
-    tile[blockIdx.y+1][blockIdx.x+1] = in[y*width + x];
+    if (x < width && y < height) {
+        tile[tile_y][tile_x] = in[y*width + x];
+    }
 
-    int numbering = blockIdx.y * TILE_SIZE + blockIdx.x;
+    // Copy top border, bottom border, and remaining cells on side borders
+    // in-order
+    int numbering = threadIdx.y * BLOCK_SIZE + threadIdx.x;
     int halo_tile_x, halo_tile_y;
-    if (numbering < TILE_SIZE+2) {
+    if (numbering < TILE_SIZE) {
+        // Top border
         halo_tile_y = 0;
         halo_tile_x = numbering;
     } else {
-        numbering -= TILE_SIZE+2;
-        if (numbering < TILE_SIZE+2) {
-            halo_tile_y = TILE_SIZE + 1;
+        numbering -= TILE_SIZE;
+        if (numbering < TILE_SIZE) {
+            // Bottom border
+            halo_tile_y = BLOCK_SIZE + 1;
             halo_tile_x = numbering;
         } else {
-            numbering -= TILE_SIZE+2;
-            if (numbering < TILE_SIZE) {
+            numbering -= TILE_SIZE;
+            if (numbering < BLOCK_SIZE) {
+                // Left border
                 halo_tile_y = numbering + 1;
                 halo_tile_x = 0;
             } else {
-                numbering -= TILE_SIZE;
-                if (numbering < TILE_SIZE) {
+                numbering -= BLOCK_SIZE;
+                if (numbering < BLOCK_SIZE) {
+                    // Right border
                     halo_tile_y = numbering + 1;
-                    halo_tile_x = TILE_SIZE + 2;
+                    halo_tile_x = BLOCK_SIZE + 1;
+                } else {
+                    halo_tile_y = -1;
+                    halo_tile_x = -1;
                 }
             }
         }
     }
-    int halo_x = blockIdx.x * blockDim.x - 1 + halo_tile_x;
-    int halo_y = blockIdx.y * blockDim.y - 1 + halo_tile_y;
-    if (halo_x < width && halo_y < height) {
-        tile[halo_tile_y][halo_tile_x] = in[halo_y*width + halo_x];
+    if (halo_tile_x != -1) {
+        int halo_x = blockIdx.x * blockDim.x - 1 + halo_tile_x;
+        int halo_y = blockIdx.y * blockDim.y - 1 + halo_tile_y;
+        if (halo_x >= 0 && halo_x < width && halo_y >= 0 && halo_y < height) {
+            tile[halo_tile_y][halo_tile_x] = in[halo_y*width + halo_x];
+        }
     }
 
-    // Corners are not copied
+    // printf("Thread (%d,%d) maps to (%d,%d): loaded tiles (%d,%d) and (%d,%d)\n", threadIdx.x, threadIdx.y, x, y, tile_x, tile_y, halo_tile_x, halo_tile_y);
 
     __syncthreads();
 
@@ -52,9 +69,9 @@ __global__ void conway_step_kernel(u_int8_t* in, u_int8_t* out, int width, int h
         for (u_int8_t i = 0; i < 9; i++) {
             int neighbor_x = (i % 3) - 1 + x;
             int neighbor_y = (i / 3) - 1 + y;
-            int neighbor_tile_x = (i % 3) + blockIdx.x;
-            int neighbor_tile_y = (i / 3) + blockIdx.y;
-            if (neighbor_x > 0 && neighbor_x < width && neighbor_y > 0 && neighbor_y < height) {
+            if (neighbor_x >= 0 && neighbor_x < width && neighbor_y >= 0 && neighbor_y < height) {
+                int neighbor_tile_x = (i % 3) + threadIdx.x;
+                int neighbor_tile_y = (i / 3) + threadIdx.y;
                 neighborhood[i] = tile[neighbor_tile_y][neighbor_tile_x];
             } else {
                 neighborhood[i] = false;
@@ -69,7 +86,7 @@ int main() {
     int width = 1024;
     int len = height * width;
     int iterations = 1000;
-    int block_size_1d = TILE_SIZE;
+    int block_size_1d = BLOCK_SIZE;
 
     FILE *fptr;
     fptr = fopen("gc_1024x1024-uint8.raw", "rb");
@@ -105,8 +122,13 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    dim3 blocksPerGrid(ceil(len/(double)block_size_1d), ceil(len/(double)block_size_1d)); 
+    struct timespec start_time;
+    struct timespec end_time;
+
+    dim3 blocksPerGrid(ceil(width/(double)block_size_1d), ceil(height/(double)block_size_1d));
     dim3 threadsPerBlock(block_size_1d, block_size_1d);
+
+    clock_gettime(CLOCK_REALTIME, &start_time);
 
     for (int i = 0; i < iterations; i++) {
         if (i % 2 == 0) {
@@ -116,11 +138,16 @@ int main() {
         }
         ret = cudaDeviceSynchronize();
         if (ret != cudaSuccess) {
-            fprintf(stderr, "CUDA synchronize failed.\n");
+            fprintf(stderr, "CUDA synchronize failed with ret=%d\n", ret);
             return EXIT_FAILURE;
         }
-        printf("Ran %d-th simulation\n", i);
     }
+
+    clock_gettime(CLOCK_REALTIME, &end_time);
+
+    double time_ns = (double) (end_time.tv_sec - start_time.tv_sec) * 1.0e9 + (double) (end_time.tv_nsec - start_time.tv_nsec);
+    double time_ms = time_ns / 1000000;
+    printf("Finished in %f ns\n", time_ms);
 
     u_int8_t* output_d = iterations % 2 == 0 ? field_a_d : field_b_d;
     ret = cudaMemcpy(field_h, output_d, len, cudaMemcpyDeviceToHost);
@@ -129,7 +156,7 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    fptr = fopen("gc_out.raw", "wb");
+    fptr = fopen("gc_out-optimized.raw", "wb");
     if (fptr == NULL) {
         printf("Unable to open output file.");
         return EXIT_FAILURE;

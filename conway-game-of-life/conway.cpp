@@ -34,7 +34,7 @@ HOST_DEVICE void update_single_cell(int x, int y, u_int8_t* in, u_int8_t* out, i
     for (u_int8_t i = 0; i < 9; i++) {
         int neighbor_x = (i % 3) - 1 + x;
         int neighbor_y = (i / 3) - 1 + y;
-        if (neighbor_x > 0 && neighbor_x < width && neighbor_y > 0 && neighbor_y < height) {
+        if (neighbor_x >= 0 && neighbor_x < width && neighbor_y >= 0 && neighbor_y < height) {
             neighborhood[i] = in[neighbor_y*width + neighbor_x];
         } else {
             neighborhood[i] = false;
