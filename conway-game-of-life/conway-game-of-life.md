@@ -5,6 +5,10 @@
 * Naive CUDA: 32.311710 ms
 * Optimized CUDA: 41.148865 ms
 
+My optimized CUDA implementation is likely slowed by the complicated logic I
+use to copy tiles from global memory to shared memory. This logic uses nested
+conditionals to assign threads to cells in the halo.
+
 ## Effective Memory Bandwidth for GPU versions
 
 Each step of the simulation performs roughly 1024x1024x9=9437184 memory
